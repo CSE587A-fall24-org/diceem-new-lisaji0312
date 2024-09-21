@@ -60,9 +60,11 @@ def diceEM(experiment_data: List[NDArray[np.int_]],  # pylint: disable=C0103
                       bag_of_dice.likelihood(experiment_data))
 
         # YOUR CODE HERE. SET REQUIRED VARIABLES BY CALLING e-step AND m-step.
-        # E-step: compute the expected counts given current parameters        
+        # E-step: compute the expected counts given current parameters  
+        expected_counts=e_step(experiment_data=experiment_data, bag_of_dice=bag_of_dice)      
   
         # M-step: update the parameters given the expected counts
+        updated_bag_of_dice= m_step(expected_counts_by_die=expected_counts)
       
         prev_bag_of_dice: BagOfDice = bag_of_dice
         bag_of_dice = updated_bag_of_dice
@@ -108,8 +110,35 @@ def e_step(experiment_data: List[NDArray[np.int_]],
     # counts for each type over all the draws.  
 
     # PUT YOUR CODE HERE, FOLLOWING THE DIRECTIONS ABOVE
+    for roll in experiment_data:
+        # find the likelihood of the face being rolled given a die
+        likelihood_of_face = np.zeros(len(bag_of_dice))
+        for die_index, die in enumerate(bag_of_dice.dice):
+            
+            # prior likelihood of observing a roll given die dix_index 
+            likelihood = bag_of_dice.die_priors[die_index]
+            
+            for face_index in range(len(die.face_probs)):
+
+                count = roll[face_index]
+                face_prob = die.face_probs[face_index]
+                # probability of each face being drawn ^ number of times it's drawn
+                likelihood *= safe_exponentiate(face_prob, count)
+            
+            likelihood_of_face[die_index] = likelihood
+
+        total_likelihood = np.sum(likelihood_of_face)
+    
+        posterior_likelihood = likelihood_of_face / total_likelihood
+
+        # update expected counts for each die type on a draw
+        for die_idx, die in enumerate(bag_of_dice.dice):
+            posterior = posterior_likelihood[die_idx]
+            for face_idx in range(len(die.face_probs)):
+                expected_counts[die_idx, face_idx] += posterior * roll[face_idx]
 
     return expected_counts
+
 
 
 def m_step(expected_counts_by_die: NDArray[np.float_]):
@@ -131,17 +160,41 @@ def m_step(expected_counts_by_die: NDArray[np.float_]):
     :return: A new BagOfDice object with updated parameters
     :rtype: BagOfDice
     """
+    num_die=len(expected_counts_by_die)
     updated_type_1_frequency = np.sum(expected_counts_by_die[0])
     updated_type_2_frequency = np.sum(expected_counts_by_die[1])
+    total_frequency= updated_type_1_frequency+updated_type_2_frequency
 
     # REPLACE EACH NONE BELOW WITH YOUR CODE. 
-    updated_priors = None
-    updated_type_1_face_probs = None
-    updated_type_2_face_probs = None
+
     
-    updated_bag_of_dice = BagOfDice(updated_priors,
-                                    [Die(updated_type_1_face_probs),
-                                     Die(updated_type_2_face_probs)])
+    if total_frequency == 0:
+        # Assign priors to be close to each other if no obervations are made to avoid division by zero to avoid slow convergence
+        updated_priors = [0.45, 0.55]
+    else:
+        updated_priors = [
+            updated_type_1_frequency / total_frequency,
+            updated_type_2_frequency / total_frequency
+        ]
+    # assign probability to each face if no observation of the die is made
+    if updated_type_1_frequency == 0:
+        num_faces_die1 = len(expected_counts_by_die[0])
+        face_probs_die1 = np.random.uniform(1.0/num_faces_die1, 2.0 / num_faces_die1,num_faces_die1)
+        face_probs_die1 /= sum(face_probs_die1) # Normalize to sum to 1
+    else:
+        face_probs_die1 = expected_counts_by_die[0] / updated_type_1_frequency
+    
+    if updated_type_2_frequency == 0:
+        num_faces_die2 = len(expected_counts_by_die[1])
+        face_probs_die2 = np.random.uniform(1.0/num_faces_die2, 2.0 / num_faces_die2,num_faces_die2)
+        face_probs_die2 /= sum(face_probs_die2) # Normalize to sum to 1
+    else:
+        face_probs_die2 = expected_counts_by_die[1] / updated_type_2_frequency
+    
+    die1 = Die(face_probs=face_probs_die1.tolist())
+    die2 = Die(face_probs=face_probs_die2.tolist())
+   
+    updated_bag_of_dice = BagOfDice(updated_priors, [die1 , die2])
 
     return updated_bag_of_dice
 
